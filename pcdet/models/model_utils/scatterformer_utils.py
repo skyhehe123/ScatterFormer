@@ -221,8 +221,8 @@ class ScatterAttention(nn.Module):
         
 
 
-        self.qkv = nn.Linear(dim, dim * 3)
-        # self.norm = nn.LayerNorm(self.head_dim)
+        self.qkv = nn.Linear(dim, dim * 4)
+        self.norm = nn.LayerNorm(self.head_dim)
        
         self.proj = nn.Linear(dim, dim, bias=False)
         # self.scaling = self.head_dim ** -0.5
@@ -232,20 +232,19 @@ class ScatterAttention(nn.Module):
         
         N, C = x.shape
          
-        qkv = self.qkv(x).reshape(N, 3, C)
-        q, k, v = qkv.unbind(1)
+        qkv = self.qkv(x).reshape(N, 4, C)
+        q, k, v, g = qkv.unbind(1)
         if pe is not None:
             q = q + pe
             k = k + pe
         q, k, v = (rearrange(x, "n (h c) -> n h c", h=self.num_heads).contiguous() for x in [q, k, v])
         
         s = scatter_matmul_kv(k, v, offsets, counts)
-        s = F.normalize(s, -1)
         o = scatter_matmul_qc(q, s, offsets, counts)
         
-        o = rearrange(o, "n h c -> n (h c)", h=self.num_heads)
+        o = rearrange(self.norm(o), "n h c -> n (h c)", h=self.num_heads)
         
-        # o = F.silu(g) * o
+        o = F.silu(g) * o
         
         return self.proj(o)
        

@@ -185,7 +185,6 @@ def train_model(model, optimizer, train_loader, model_func, lr_scheduler, optim_
                 leave_pbar=(cur_epoch + 1 == total_epochs),
                 total_it_each_epoch=total_it_each_epoch,
                 dataloader_iter=dataloader_iter, 
-                
                 cur_epoch=cur_epoch, total_epochs=total_epochs,
                 use_logger_to_record=use_logger_to_record, 
                 logger=logger, logger_iter_interval=logger_iter_interval,

@@ -13,9 +13,12 @@ This repo is the official implementation of paper: [ScatterFormer: Efficient Vox
 </div>
 
 ## News
--[24-06-21] Scatterformer is accepted by ECCV 2024!  
--[24-07-18] Code of Waymo is released (SOTA).
--[24-07-18] Code of NuScenes is released (SOTA).
+- [24-06-21] Scatterformer is accepted by ECCV 2024!  
+- [24-07-18] Training code released 
+
+
+
+
 
 
 

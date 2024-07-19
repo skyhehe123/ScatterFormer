@@ -26,3 +26,4 @@ test_spconv.py
 **/scatterformerv2.yaml
 **/scatterformerv3.yaml
 **/hednet.yaml
+**/scatterformerv2_utils.py

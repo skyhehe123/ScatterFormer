@@ -306,66 +306,7 @@ def scatter_normalize(src, batch_win_ids):
     src_sum = torch.sqrt(src_sum + 1e-6)
     return src / (src_sum[batch_win_ids, ...] + 1e-6)
 
-class ScatterAttention(nn.Module):
 
-    def __init__(self, dim, num_heads, qkv_bias=False, indice_key=None):
-
-        super().__init__()
-        self.dim = dim
-        self.num_heads = num_heads
-        self.head_dim = dim // num_heads    
-        
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.proj = nn.Linear(dim, dim)
-        # self.scale = self.head_dim ** -0.5
-        self.pool = spconv.SparseSumPool2d(3, 1, 1, indice_key=indice_key)
-      
-    def forward(self, x, offsets, counts, batch_win_inds, 
-                batch_win_coords, win_bev_shape, batch_size, indice_dict):
-        
-        N, C = x.shape
-        
-        qkv = self.qkv(x).reshape(N, 3, C)
-
-        q, k, v = qkv.unbind(1)
-
-        q, k, v = (rearrange(x, "n (h c) -> n h c", h=self.num_heads).contiguous() for x in [q, k, v])
-
-        q = F.relu(q)
-        k = F.relu(k)
-
-        kv = scatter_matmul_kv(k, v, offsets, counts)
-        s = torch_scatter.scatter_add(k, batch_win_inds, dim=0)
-        
-        kv_tensor = spconv.SparseConvTensor(
-            kv.view(-1, self.num_heads * self.head_dim * self.head_dim), 
-            batch_win_coords, win_bev_shape, batch_size
-        )
-        if indice_dict is not None:
-            kv_tensor.indice_dict = indice_dict
-        kv = self.pool(kv_tensor)
-        
-        s_tensor = spconv.SparseConvTensor(
-            s.view(-1, self.num_heads * self.head_dim),
-            batch_win_coords, win_bev_shape, batch_size
-        )
-        s_tensor.indice_dict = kv.indice_dict
-        s = self.pool(s_tensor)
-     
-        kv = kv.features.view(-1, self.num_heads, self.head_dim, self.head_dim)
-        s = s.features.view(-1, self.num_heads, self.head_dim)
-
-      
-        y = scatter_matmul_qc(q, kv, offsets, counts)
-        z = torch.sum(s[batch_win_inds, ...] * q, -1, keepdim=True)
-       
-        y = y / (z + 1e-6)
-
-        y = rearrange(y, "n h c -> n (h c)", h=self.num_heads)
-        
-        y = self.proj(y)
-       
-        return y,  s_tensor.indice_dict
 
 
 

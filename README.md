@@ -31,7 +31,7 @@ This repo is the official implementation of paper: [ScatterFormer: Efficient Vox
 |  Model  |  #Sweeps | mAP/H_L1 | mAP/H_L2 | Veh_L1 | Veh_L2 | Ped_L1 | Ped_L2 | Cyc_L1 | Cyc_L2 | Log |
 |---------|---------|--------|--------|--------|--------|--------|--------|--------|--------|--------|
 |  [ScatterFormer (100%)](tools/cfgs/waymo_models/scatterformer.yaml) | 1       |  81.8/79.7  | 75.7/73.8  | 81.0/80.5 | 73.1/72.7 | 84.5/79.9 | 77.0/72.6 | 79.9/78.9 | 77.1/76.1 | [Log](https://drive.google.com/file/d/1WamAN8tBRg8aq35Ia6PsEdkYo-jxKNS1/view?usp=sharing) |
-|  [ScatterFormer (20%)](tools/cfgs/waymo_models/scatterformer.yaml) | 1       |  81.8/79.7  | 75.7/73.8  | 79.6/79.1 | 71.6/71.2 | 83.5/78.3 | 75.9/71.0 | 77.7/76.6 | 74.8/73.7 | [Log](https://drive.google.com/file/d/1_nGyTDCGy8oo-tkw7BHKoO_w8eMzPbm8/view?usp=sharing) |
+|  [ScatterFormer (20%)](tools/cfgs/waymo_models/scatterformer.yaml) | 1       |  80.3/78.0  | 74.1/73.8  | 79.6/79.1 | 71.6/72.0 | 83.5/78.3 | 75.9/71.0 | 77.7/76.6 | 74.8/73.7 | [Log](https://drive.google.com/file/d/1_nGyTDCGy8oo-tkw7BHKoO_w8eMzPbm8/view?usp=sharing) |
 ### NuScenes validation
 |  Model  | mAP | NDS | mATE | mASE | mAOE | mAVE| mAAE | ckpt | Log |
 |---------|---------|--------|---------|---------|--------|---------|--------|--------|--------|

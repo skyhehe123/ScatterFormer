@@ -15,14 +15,7 @@ This repo is the official implementation of paper: [ScatterFormer: Efficient Vox
 ## News
 - [24-06-21] Scatterformer is accepted by ECCV 2024!  
 - [24-07-18] Training code released 
-
-
-
-
-
-
-
-
+- [25-05-20] Added CUDA implementation for group-wise sparse convolution
 
 
 ## Main results
@@ -47,7 +40,18 @@ Please refer to [INSTALL.md](docs/INSTALL.md) for installation.
 Please follow the instructions from [OpenPCDet](https://github.com/open-mmlab/OpenPCDet/blob/master/docs/GETTING_STARTED.md). We adopt the same data generation process.
 
 ### Sparse Group-wise Convolution
-ScatterFormer relies on a group-wise sparse convolution, please find this hacked version of [spconv](https://github.com/skyhehe123/spconv) 
+~~ScatterFormer relies on a group-wise sparse convolution, please find 
+this hacked version of [spconv]
+(https://github.com/skyhehe123/spconv)~~
+
+We update the cuda implementation of group-wise sparse convolution in `pcdet/ops/dw_spconv/`. You need to compile the CUDA code:
+
+```bash
+cd pcdet/ops/dw_spconv
+python setup.py build_ext --inplace
+```
+
+This will compile the CUDA implementation and you won't need to recompile the hacked version of spconv anymore.
 
 ### Training
 ```

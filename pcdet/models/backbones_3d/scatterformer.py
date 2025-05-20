@@ -4,7 +4,7 @@ from functools import partial
 from ...utils.spconv_utils import replace_feature, spconv
 from .spconv_backbone import post_act_block, SparseBasicBlock
 from ...utils.spconv_utils import replace_feature
-from ..model_utils.scatterformer_utils import rearrange, scatter_matmul_kv, scatter_matmul_qc, torch_scatter
+from ..model_utils.scatterformer_utils import rearrange, scatter_matmul_kv, scatter_matmul_qc, torch_scatter, SparseDwConv
 
 
 import torch.nn.functional as F
@@ -224,14 +224,14 @@ class CWI_FFN_Layer(spconv.SparseModule):
 
         self.bn = nn.BatchNorm1d(embed_dim, eps=1e-3, momentum=0.01)
         
-        self.conv_k = spconv.SparseDwConv3d(
-            embed_dim // 4, kernel_size=3, stride=1, padding=1, indice_key=indice_key + 'k'
+        self.conv_k = SparseDwConv(
+            3, embed_dim // 4, kernel_size=3, stride=1, padding=1, indice_key=indice_key + 'k'
         )
-        self.conv_h = spconv.SparseDwConv3d(
-            embed_dim // 4, kernel_size=(1, 1, conv_size), stride=(1, 1, 1), padding=(0, 0, conv_size//2), indice_key=indice_key + 'h'
+        self.conv_h = SparseDwConv(
+            3, embed_dim // 4, kernel_size=(1, 1, conv_size), stride=(1, 1, 1), padding=(0, 0, conv_size//2), indice_key=indice_key + 'h'
         )
-        self.conv_w = spconv.SparseDwConv3d(
-            embed_dim // 4, kernel_size=(1, conv_size, 1), stride=(1, 1, 1), padding=(0, conv_size//2, 0), indice_key=indice_key + 'w'
+        self.conv_w = SparseDwConv(
+            3,embed_dim // 4, kernel_size=(1, conv_size, 1), stride=(1, 1, 1), padding=(0, conv_size//2, 0), indice_key=indice_key + 'w'
         )
 
         

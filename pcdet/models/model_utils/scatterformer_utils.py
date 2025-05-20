@@ -1,4 +1,4 @@
-import math
+import numpy as np
 import torch
 import torch.nn.functional as F
 import triton
@@ -7,6 +7,17 @@ import torch.nn as nn
 from einops import rearrange
 import torch_scatter
 import spconv.pytorch as spconv
+
+
+from torch.nn.parameter import Parameter
+from pcdet.ops.dw_spconv import dw_spconv
+from typing import List, Optional, Tuple, Union
+from spconv import pytorch as spconv
+from spconv.core import ConvAlgo
+from spconv.pytorch import ops
+from spconv.pytorch.core import ImplicitGemmIndiceData, expand_nd
+from spconv.pytorch.modules import SparseModule
+from spconv.utils import nullcontext
 
 BLOCK_SIZE=32
 
@@ -367,5 +378,170 @@ class ScatterAttention(nn.Module):
        
         return y,  s_tensor.indice_dict
 
+class SparseDwConvImplicitGemmFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, features: torch.Tensor, weights:torch.Tensor, 
+                indice_pairs_fwd: torch.Tensor, indice_pairs_bwd: torch.Tensor):
+        
+        if not features.is_contiguous():
+            features = features.contiguous()
+        if not weights.is_contiguous():
+            weights = weights.contiguous()
+        if not indice_pairs_fwd.is_contiguous():
+            indice_pairs_fwd = indice_pairs_fwd.contiguous()
+       
+        out = dw_spconv.indice_sparse_dwconv(features, weights, indice_pairs_fwd)
+        ctx.save_for_backward(indice_pairs_bwd, features, weights)
+      
+        return out
 
+    @staticmethod
+    def backward(ctx, grad_output):
+        indice_pairs_bwd, features, weights = ctx.saved_tensors
+       
+        if not grad_output.is_contiguous():
+            grad_output = grad_output.contiguous()
+        if not features.is_contiguous():
+            features = features.contiguous()
+        if not weights.is_contiguous():
+            weights = weights.contiguous()
+        if not indice_pairs_bwd.is_contiguous():
+            indice_pairs_bwd = indice_pairs_bwd.contiguous()
+        
+    
+        input_bp, weight_bp = dw_spconv.indice_sparse_dwconv_backward(
+            grad_output, features, weights, indice_pairs_bwd)
+       
+        return input_bp, weight_bp, None, None
+    
+sparse_dwconv = SparseDwConvImplicitGemmFunction.apply
 
+class SparseDwConv(SparseModule):
+    def __init__(self,
+                 ndim,
+                 dim,
+                 kernel_size: Union[int, List[int], Tuple[int, ...]] = 3,
+                 stride: Optional[Union[int, List[int], Tuple[int, ...]]] = 1,
+                 padding: Union[int, List[int], Tuple[int, ...]] = 0,
+                 dilation: Union[int, List[int], Tuple[int, ...]] = 1,
+                 indice_key: Optional[str] = None,
+                 subm: bool = True,
+                 name=None):
+        super(SparseDwConv, self).__init__(name=name)
+        self.ndim = ndim
+        self.kernel_size = expand_nd(ndim, kernel_size)
+        if stride is None:
+            self.stride = self.kernel_size.copy()
+        else:
+            self.stride = expand_nd(ndim, stride)
+        self.padding = expand_nd(ndim, padding)
+        self.subm = subm
+      
+        self.dilation = expand_nd(ndim, dilation)
+        self.indice_key = indice_key
+        kv = int(np.prod(kernel_size))
+        assert kv <= 32, "avg pool only support implicit-gemm style indice gen with kv <= 32 limit"
+        self.algo = ConvAlgo.MaskImplicitGemm
+        self.weight = Parameter( torch.randn(*self.kernel_size, dim))
+        
+    def extra_repr(self):
+        s = ('kernel_size={kernel_size}' ', stride={stride}')
+        if self.padding != (0, ) * len(self.padding):
+            s += ', padding={padding}'
+        if self.dilation != (1, ) * len(self.dilation):
+            s += ', dilation={dilation}'
+        if self.algo is not None:
+            s += f', algo={self.algo}'
+        return s.format(**self.__dict__)
+        
+    def forward(self, input):
+        assert isinstance(input, spconv.SparseConvTensor)
+        is_int8 = input.is_quantized
+        if is_int8:
+            assert self.algo == ConvAlgo.MaskImplicitGemm, "only ConvAlgo.MaskImplicitGemm support int8."
+
+        features = input.features
+        indices = input.indices
+        spatial_shape = input.spatial_shape
+        batch_size = input.batch_size
+
+        if not self.subm:
+            out_spatial_shape = ops.get_conv_output_size(
+                spatial_shape, self.kernel_size, self.stride, self.padding,
+                self.dilation)
+        else:
+            out_spatial_shape = spatial_shape
+        out_tensor = input.shadow_copy()
+        if self.indice_key is not None:
+            datas = input.find_indice_pair(self.indice_key)
+        out_padding = [0] * self.ndim
+        indice_dict = input.indice_dict.copy()
+        profile_ctx = nullcontext()
+        if input._timer is not None and self._sparse_unique_name:
+            profile_ctx = input._timer.namespace(self._sparse_unique_name)
+        with profile_ctx:
+            if self.indice_key is not None and datas is not None:
+                outids = datas.out_indices
+                pair_fwd = datas.pair_fwd
+                pair_bwd = datas.pair_bwd
+                pair_mask_fwd_splits = datas.pair_mask_fwd_splits
+                pair_mask_bwd_splits = datas.pair_mask_bwd_splits
+                mask_argsort_fwd_splits = datas.mask_argsort_fwd_splits
+                mask_argsort_bwd_splits = datas.mask_argsort_bwd_splits
+                masks = datas.masks
+            else:
+                with input._timer.namespace("gen_pairs"):
+                    res = ops.get_indice_pairs_implicit_gemm(
+                        indices,
+                        batch_size,
+                        spatial_shape,
+                        self.algo,
+                        ksize=self.kernel_size,
+                        stride=self.stride,
+                        padding=self.padding,
+                        dilation=self.dilation,
+                        out_padding=out_padding,
+                        subm=self.subm,
+                        is_train=(not self.subm) or self.training,
+                        alloc=input.thrust_allocator,
+                        timer=input._timer)
+                outids = res[0]
+                num_inds_per_loc = res[1]
+                pair_fwd = res[2]
+                pair_bwd = res[3]
+                pair_mask_fwd_splits = res[4]
+                pair_mask_bwd_splits = res[5]
+                mask_argsort_fwd_splits = res[6]
+                mask_argsort_bwd_splits = res[7]
+                masks = res[8]
+                if self.indice_key is not None:
+                    indice_data = ImplicitGemmIndiceData(
+                        outids,
+                        indices,
+                        pair_fwd,
+                        pair_bwd,
+                        pair_mask_fwd_splits=pair_mask_fwd_splits,
+                        pair_mask_bwd_splits=pair_mask_bwd_splits,
+                        mask_argsort_fwd_splits=mask_argsort_fwd_splits,
+                        mask_argsort_bwd_splits=mask_argsort_bwd_splits,
+                        masks=masks,
+                        is_subm=self.subm,
+                        spatial_shape=spatial_shape,
+                        out_spatial_shape=out_spatial_shape,
+                        algo=self.algo,
+                        ksize=self.kernel_size,
+                        stride=self.stride,
+                        padding=self.padding,
+                        dilation=self.dilation)
+                    msg = f"your indice key {self.indice_key} already exists in this sparse tensor."
+                    assert self.indice_key not in indice_dict, msg
+                    indice_dict[self.indice_key] = indice_data
+           
+            out_features = sparse_dwconv(
+                features, self.weight, pair_fwd, pair_bwd)
+
+        out_tensor = out_tensor.replace_feature(out_features)
+        out_tensor.indices = outids
+        out_tensor.indice_dict = indice_dict
+        out_tensor.spatial_shape = out_spatial_shape
+        return out_tensor
